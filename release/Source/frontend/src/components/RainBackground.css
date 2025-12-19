@@ -1,0 +1,149 @@
+@property --angle {
+  syntax: "<angle>";
+  inherits: true;
+  initial-value: 91deg;
+}
+
+.rain-container {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: linear-gradient(180deg, #07131c, #305472);
+  z-index: 0;
+  pointer-events: none;
+}
+
+.rain-container::after {
+  content: "CLICK & HOLD TO CREATE LIGHTNING";
+  font-family: Arial, Helvetica, serif;
+  font-size: 12px;
+  position: absolute;
+  width: 100%;
+  text-align: center;
+  bottom: 18px;
+  color: rgba(255, 255, 255, 0.267);
+  z-index: 10;
+  pointer-events: none;
+}
+
+
+
+.rain-container:active::after {
+  color: transparent;
+  transition: all 0.5s ease 0s;
+}
+
+.rain {
+  position: absolute;
+  width: 120vw;
+  height: 100%;
+  cursor: pointer;
+  z-index: 1;
+  left: -10vw;
+  top: 0;
+  pointer-events: none;
+}
+
+/* Lightning interaction */
+.rain:active,
+.rain.lightning-active {
+  cursor: none;
+  animation: lightning 1.5s linear infinite;
+}
+
+.rain:active::after,
+.rain.lightning-active::after {
+  opacity: 0;
+  transition: all 0.1s ease 0s;
+}
+
+/* Indicators */
+.rain::after {
+  content: "\21AF";
+  position: fixed;
+  left: calc(50% - 30px);
+  bottom: 45px;
+  color: rgba(255, 255, 255, 0.533);
+  font-size: 35px;
+  border: 2px dashed rgba(255, 255, 255, 0.2);
+  border-radius: 100%;
+  width: 60px;
+  height: 60px;
+  box-sizing: border-box;
+  padding: 13px 18px;
+  text-align: center;
+  line-height: 30px;
+  transition: all 0.5s ease 0s;
+  white-space: pre-wrap;
+  pointer-events: none;
+}
+
+@keyframes lightning {
+
+  0%,
+  100% {
+    background: transparent;
+  }
+
+  10% {
+    background: rgba(255, 255, 255, 0.8);
+  }
+
+  20% {
+    background: rgba(255, 255, 255, 0.2);
+  }
+
+  30% {
+    background: rgba(255, 255, 255, 0.9);
+  }
+
+  40% {
+    background: transparent;
+  }
+
+  50% {
+    background: rgba(255, 255, 255, 0.6);
+  }
+
+  60% {
+    background: rgba(255, 255, 255, 0.1);
+  }
+
+  70% {
+    background: transparent;
+  }
+
+  80% {
+    background: rgba(255, 255, 255, 0.4);
+  }
+}
+
+.drop-wrapper {
+  position: absolute;
+  pointer-events: none;
+  transform: rotate(var(--angle));
+  transition: transform 0.5s ease-out;
+}
+
+.drop {
+  border: 0.25vmin solid transparent;
+  border-bottom-color: #abc2e9;
+  position: absolute;
+  top: 0;
+  pointer-events: none;
+  animation-name: fall;
+  animation-timing-function: ease-in;
+  animation-iteration-count: infinite;
+}
+
+@keyframes fall {
+  0% {
+    transform: translateX(0);
+  }
+
+  100% {
+    transform: translateX(calc(100vh + 5vmin));
+  }
+}

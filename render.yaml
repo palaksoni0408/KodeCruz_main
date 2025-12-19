@@ -1,0 +1,26 @@
+services:
+  - type: web
+    name: kodescruz-backend
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.10.0
+      - key: SECRET_KEY
+        generateValue: true
+      - key: ALLOWED_ORIGINS
+        value: https://kodescruz.vercel.app,http://localhost:5173
+      - key: DATABASE_URL
+        fromDatabase:
+          name: kodescruz-db
+          property: connectionString
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+
+databases:
+  - name: kodescruz-db
+    databaseName: kodescruz
+    user: kodescruz

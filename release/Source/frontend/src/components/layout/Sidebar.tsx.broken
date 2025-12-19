@@ -1,0 +1,127 @@
+import { useState, useEffect } from 'react';
+import { LogOut, LogIn, Menu, X, LayoutDashboard } from 'lucide-react';
+import { useAuth } from '../../context/AuthContext';
+import AuthModal from '../auth/AuthModal';
+
+interface SidebarProps {
+    onDashboardClick?: () => void;
+    features: any[];
+    activeFeature: string;
+    setActiveFeature: (id: string) => void;
+    onFeatureChange?: () => void;
+}
+
+export default function Sidebar({ features, activeFeature, setActiveFeature, onFeatureChange, onDashboardClick }: SidebarProps) {
+    const { user, logout, isAuthenticated } = useAuth();
+    const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+    const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
+    // Close mobile menu when feature changes
+    const handleFeatureClick = (featureId: string) => {
+        setActiveFeature(featureId);
+        if (onFeatureChange) onFeatureChange();
+        setIsMobileMenuOpen(false);
+    };
+
+    // Prevent scrolling when mobile menu is open
+    useEffect(() => {
+        if (isMobileMenuOpen) {
+            document.body.style.overflow = 'hidden';
+        } else {
+            document.body.style.overflow = 'unset';
+        }
+        return () => {
+            document.body.style.overflow = 'unset';
+        };
+    }, [isMobileMenuOpen]);
+
+    return (
+        <div className="lg:col-span-1">
+            {/* Mobile Header Bar */}
+            <div className="lg:hidden flex items-center justify-between bg-slate-900/80 backdrop-blur-md p-4 sticky top-0 z-40 border-b border-white/10 mb-4 rounded-xl">
+                <span className="font-bold text-white text-lg">Menu</span>
+                <button
+                    onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+                    className="text-white p-2 hover:bg-white/10 rounded-lg transition-colors"
+                >
+                    {isMobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
+                </button>
+            </div>
+
+            {/* Sidebar Container - Desktop: Static, Mobile: Fixed Overlay */}
+            <div className={`
+        fixed inset-0 z-50 lg:static lg:z-auto lg:inset-auto
+        flex flex-col gap-4 transition-all duration-300 ease-in-out
+        ${isMobileMenuOpen ? 'translate-x-0 bg-slate-950/95 backdrop-blur-xl p-4' : '-translate-x-full lg:translate-x-0 lg:bg-transparent lg:p-0'}
+      `}>
+                {/* Mobile Close Button (Top Right) */}
+                <div className="lg:hidden flex justify-end mb-2">
+                    <button
+                        onClick={() => setIsMobileMenuOpen(false)}
+                        className="text-gray-400 hover:text-white p-2"
+                    >
+                        <X size={24} />
+                    </button>
+                </div>
+
+                {/* User Profile / Auth Section */}
+                <div className="bg-white/10 backdrop-blur-lg rounded-xl p-4 border border-white/10 shadow-lg">
+                    {isAuthenticated && user ? (
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-3 overflow-hidden">
+                                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center text-white font-bold text-base flex-shrink-0 shadow-inner">
+                                    {user.username[0].toUpperCase()}
+                                </div>
+                                <div className="flex flex-col min-w-0">
+                                    <span className="text-sm font-semibold text-white truncate">{user.username}</span>
+                                    <div className="flex items-center gap-1.5">
+                                        <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                                        <span className="text-xs text-emerald-400 font-medium truncate">Online</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <button
+                                onClick={logout}
+                                className="text-gray-400 hover:text-white hover:bg-red-500/20 hover:border-red-500/30 border border-transparent transition-all p-2 rounded-lg group"
+                                title="Sign Out"
+                            >
+                                <LogOut size={18} className="group-hover:text-red-400 transition-colors" />
+                            </button>
+                        </div>
+                    ) : (
+                        <button
+                            onClick={() => setIsAuthModalOpen(true)}
+                            className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-emerald-500/20 to-cyan-500/20 hover:from-emerald-500/30 hover:to-cyan-500/30 text-emerald-300 hover:text-white py-3 rounded-xl transition-all text-sm font-bold border border-emerald-500/30 hover:border-emerald-500/50 shadow-lg shadow-emerald-900/20"
+                        >
+                            <LogIn size={18} />
+                            Sign In
+                        </button>
+                    )}
+                </div>
+
+                key={feature.id}
+                onClick={() => handleFeatureClick(feature.id)}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 text-sm group ${isActive
+                    ? `bg-gradient-to-r from-${feature.color}-500/20 to-${feature.color}-600/10 text-white shadow-md border border-${feature.color}-500/30 translate-x-1`
+                    : 'text-gray-400 hover:bg-white/5 hover:text-white border border-transparent hover:translate-x-1'
+                    }`}
+                            >
+                <div className={`p-1.5 rounded-lg transition-colors ${isActive ? `bg-${feature.color}-500/20` : 'bg-white/5 group-hover:bg-white/10'}`}>
+                    <Icon size={18} className={isActive ? `text-${feature.color}-400` : 'text-gray-500 group-hover:text-gray-300'} />
+                </div>
+                <span className={`font-medium ${isActive ? 'text-white' : 'text-gray-400 group-hover:text-gray-200'}`}>
+                    {feature.label}
+                </span>
+                {isActive && (
+                    <div className={`ml-auto w-1.5 h-1.5 rounded-full bg-${feature.color}-400 shadow-[0_0_8px_rgba(0,0,0,0.5)] shadow-${feature.color}-400`}></div>
+                )}
+            </button>
+            );
+                    })}
+        </div>
+            </div >
+
+        <AuthModal isOpen={isAuthModalOpen} onClose={() => setIsAuthModalOpen(false)} />
+        </div >
+    );
+}

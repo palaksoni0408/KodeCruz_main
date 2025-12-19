@@ -1,0 +1,59 @@
+@property --angle {
+  syntax: "<angle>";
+  inherits: true;
+  initial-value: 91deg;
+}
+
+.rain-container {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: linear-gradient(180deg, #07131c, #305472);
+  z-index: 0;
+  pointer-events: none;
+}
+
+
+
+.rain {
+  position: absolute;
+  width: 120vw;
+  height: 100%;
+  cursor: pointer;
+  z-index: 1;
+  left: -10vw;
+  top: 0;
+  pointer-events: none;
+}
+
+
+
+.drop-wrapper {
+  position: absolute;
+  pointer-events: none;
+  transform: rotate(var(--angle));
+  transition: transform 0.5s ease-out;
+}
+
+.drop {
+  border: 0.25vmin solid transparent;
+  border-bottom-color: #abc2e9;
+  position: absolute;
+  top: 0;
+  pointer-events: none;
+  animation-name: fall;
+  animation-timing-function: ease-in;
+  animation-iteration-count: infinite;
+}
+
+@keyframes fall {
+  0% {
+    transform: translateX(0);
+  }
+
+  100% {
+    transform: translateX(calc(100vh + 5vmin));
+  }
+}

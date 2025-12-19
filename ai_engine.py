@@ -1,0 +1,1307 @@
+"""
+AI Engine Module for KodesCruz
+Handles all AI/LLM interactions using OpenAI with Groq fallback
+"""
+
+import logging
+from typing import Optional, AsyncIterator
+
+from langchain_openai import ChatOpenAI
+from langchain.prompts import ChatPromptTemplate
+
+from config import settings
+
+# Configure logging FIRST (before any imports that might need it)
+logging.basicConfig(level=settings.LOG_LEVEL)
+logger = logging.getLogger(__name__)
+
+# Try to import Groq (optional fallback)
+try:
+    from langchain_groq import ChatGroq
+    GROQ_AVAILABLE = True
+except ImportError:
+    GROQ_AVAILABLE = False
+    logger.warning("⚠️ langchain-groq not installed. Groq fallback disabled.")
+
+# Initialize OpenAI LLM (Primary)
+llm = None
+try:
+    llm = ChatOpenAI(
+        api_key=settings.OPENAI_API_KEY,
+        model=settings.MODEL_NAME,
+        temperature=settings.TEMPERATURE,
+        max_tokens=settings.MAX_TOKENS,
+        request_timeout=30,
+        streaming=True
+    )
+    logger.info(f"✅ OpenAI LLM initialized with model: {settings.MODEL_NAME}")
+except Exception as e:
+    logger.error(f"❌ Failed to initialize OpenAI LLM: {e}")
+    llm = None
+
+# Initialize Groq LLM (Fallback)
+groq_llm = None
+if GROQ_AVAILABLE and settings.USE_GROQ_FALLBACK and settings.GROQ_API_KEY:
+    try:
+        groq_llm = ChatGroq(
+            api_key=settings.GROQ_API_KEY,
+            model_name=settings.GROQ_MODEL,
+            temperature=settings.TEMPERATURE,
+            max_tokens=settings.MAX_TOKENS,
+            request_timeout=30,
+            streaming=True
+        )
+        logger.info(f"✅ Groq LLM initialized with model: {settings.GROQ_MODEL}")
+    except Exception as e:
+        logger.error(f"❌ Failed to initialize Groq LLM: {e}")
+        groq_llm = None
+elif settings.USE_GROQ_FALLBACK and not settings.GROQ_API_KEY:
+    logger.warning("⚠️ Groq fallback enabled but no GROQ_API_KEY provided")
+
+def safe_llm_invoke(chain, params: dict, use_groq: bool = False) -> str:
+    """
+    Safely invoke LLM with error handling and automatic fallback
+    
+    Args:
+        chain: LangChain chain object
+        params: Parameters for the prompt
+        use_groq: Force use of Groq (for testing)
+        
+    Returns:
+        str: LLM response or error message
+    """
+    # Try OpenAI first (unless forcing Groq)
+    if not use_groq and llm is not None:
+        try:
+            response = chain.invoke(params)
+            # Handle different response types
+            if hasattr(response, 'content'):
+                return response.content
+            return str(response)
+        except Exception as e:
+            logger.warning(f"OpenAI invocation failed: {e}. Attempting Groq fallback...")
+            # Fall through to Groq fallback
+    
+    # Try Groq fallback
+    if groq_llm is not None:
+        try:
+            # Rebuild chain with Groq LLM
+            from langchain.prompts import ChatPromptTemplate
+            # Extract the prompt template from the chain
+            if hasattr(chain, 'steps') and len(chain.steps) >= 1:
+                prompt_template = chain.steps[0]
+            else:
+                # Fallback: assume chain is prompt | llm
+                prompt_template = chain.first if hasattr(chain, 'first') else chain
+            
+            groq_chain = prompt_template | groq_llm
+            response = groq_chain.invoke(params)
+            logger.info("✅ Using Groq fallback")
+            
+            if hasattr(response, 'content'):
+                return response.content
+            return str(response)
+        except Exception as groq_error:
+            logger.error(f"Groq fallback also failed: {groq_error}")
+            return f"❌ Error: Both OpenAI and Groq failed. OpenAI: Service unavailable. Groq: {str(groq_error)}"
+    
+    # No LLM available
+    if llm is None and groq_llm is None:
+        return "❌ Error: No LLM configured. Please check your API keys (OPENAI_API_KEY or GROQ_API_KEY)."
+    elif llm is None:
+        return "❌ Error: OpenAI not configured and Groq fallback failed."
+    else:
+        return "❌ Error: OpenAI failed and no Groq fallback available."
+
+def explain_code(language: str, topic: str, level: str, code: str = "") -> str:
+    """
+    Explain a coding concept or topic, optionally with code
+    
+    Args:
+        language: Programming language
+        topic: Topic to explain (optional if code is provided)
+        level: Learner level (Beginner/Intermediate/Advanced)
+        code: Optional code to explain
+        
+    Returns:
+        str: Explanation
+    """
+    if code and code.strip():
+        # If code is provided, explain the code
+        prompt = ChatPromptTemplate.from_template(
+            """You are an expert programming tutor with years of teaching experience.
+            
+Explain the following {language} code for a {level} level learner:
+
+```{language}
+{code}
+```
+
+Context/Topic: {topic}
+
+Provide:
+1. A clear, line-by-line explanation of what the code does
+2. Explanation of key concepts and patterns used
+3. Real-world use cases for this code
+4. Common pitfalls or improvements
+5. How each part contributes to the overall functionality
+
+Make it engaging, educational, and easy to understand."""
+        )
+        chain = prompt | llm
+        return safe_llm_invoke(chain, {
+            "code": code,
+            "topic": topic or "General code explanation",
+            "language": language,
+            "level": level
+        })
+    else:
+        # If no code, explain the topic/concept
+        prompt = ChatPromptTemplate.from_template(
+            """You are an expert programming tutor with years of teaching experience.
+            
+Explain the following topic in {language} for a {level} level learner:
+Topic: {topic}
+
+Provide:
+1. A clear, concise explanation
+2. Real-world use cases
+3. A simple code example with comments
+4. Common pitfalls to avoid
+
+Make it engaging and easy to understand."""
+        )
+        chain = prompt | llm
+        return safe_llm_invoke(chain, {
+            "topic": topic,
+            "language": language,
+            "level": level
+        })
+
+def debug_code(language: str, code: str, topic: str = "") -> str:
+    """
+    Debug code and find errors
+    
+    Args:
+        language: Programming language
+        code: Code to debug
+        topic: Optional context topic
+        
+    Returns:
+        str: Debugging analysis
+    """
+    if not code or code.strip() == "":
+        return "⚠️ Please provide code to debug."
+    
+    prompt = ChatPromptTemplate.from_template(
+        """You are an expert code reviewer and debugger.
+Analyze the following {language} code and identify any bugs, errors, or issues:
+
+```{language}
+{code}
+```
+
+Context: {topic}
+
+Provide:
+- Issues Found: List all bugs, errors, and potential problems
+- Explanation: Explain why each issue occurs
+- Fixed Code: Provide the corrected version
+- Best Practices: Suggest improvements
+
+Be thorough and constructive."""
+    )
+    chain = prompt | llm
+    return safe_llm_invoke(chain, {
+        "language": language,
+        "code": code,
+        "topic": topic or "General debugging"
+    })
+
+def generate_code(language: str, topic: str, level: str) -> str:
+    """
+    Generate code examples
+    
+    Args:
+        language: Programming language
+        topic: What to generate code for
+        level: Complexity level
+        
+    Returns:
+        str: Generated code
+    """
+    prompt = ChatPromptTemplate.from_template(
+        """You are an expert {language} developer.
+Generate a {level} level code example for: {topic}
+
+Requirements:
+- Write clean, well-structured code
+- Add detailed comments explaining each part
+- Follow {language} best practices and conventions
+- Include error handling where appropriate
+- Make it production-ready
+- Only return the code with comments, no additional explanation outside the code."""
+    )
+    chain = prompt | llm
+    return safe_llm_invoke(chain, {
+        "topic": topic,
+        "language": language,
+        "level": level
+    })
+
+def convert_logic_to_code(logic: str, language: str) -> str:
+    """
+    Convert pseudo-code or logic to actual code
+    
+    Args:
+        logic: Pseudo-code or logic description
+        language: Target programming language
+        
+    Returns:
+        str: Converted code
+    """
+    if not logic or logic.strip() == "":
+        return "⚠️ Please provide logic or pseudo-code to convert."
+    
+    prompt = ChatPromptTemplate.from_template(
+        """You are an expert programmer skilled in converting logic to code.
+Convert the following logic/pseudo-code to {language}:
+
+{logic}
+
+Provide:
+- Clean, executable {language} code
+- Inline comments explaining the logic
+- Proper error handling
+- Best practices implementation
+- Only return the code, no additional text."""
+    )
+    chain = prompt | llm
+    return safe_llm_invoke(chain, {
+        "logic": logic,
+        "language": language
+    })
+
+def analyze_complexity(code: str) -> str:
+    """
+    Analyze time and space complexity
+    
+    Args:
+        code: Code to analyze
+        
+    Returns:
+        str: Complexity analysis
+    """
+    if not code or code.strip() == "":
+        return "⚠️ Please provide code to analyze."
+    
+    prompt = ChatPromptTemplate.from_template(
+        """You are a computer science expert specializing in algorithm analysis.
+Analyze the time and space complexity of the following code:
+
+{code}
+
+Provide:
+- Time Complexity: Big O notation with explanation
+- Space Complexity: Big O notation with explanation
+- Line-by-line Analysis: Break down the complexity of key operations
+- Optimization Suggestions: How to improve performance
+- Best/Average/Worst Case: If applicable
+
+Be detailed and educational."""
+    )
+    chain = prompt | llm
+    return safe_llm_invoke(chain, {"code": code})
+
+def trace_code(code: str, language: str) -> str:
+    """
+    Trace code execution step by step
+    
+    Args:
+        code: Code to trace
+        language: Programming language
+        
+    Returns:
+        str: Step-by-step trace
+    """
+    if not code or code.strip() == "":
+        return "⚠️ Please provide code to trace."
+    
+    prompt = ChatPromptTemplate.from_template(
+        """You are a programming instructor teaching code execution flow.
+Trace the execution of this {language} code step-by-step:
+
+{code}
+
+Provide:
+- Initial State: Variables and their initial values
+- Step-by-Step Execution: Line-by-line trace with variable changes
+- Decision Points: Explain conditionals and loops
+- Final State: Output and final variable values
+- Visual Flow: Use arrows or markers to show flow
+
+Make it clear and educational."""
+    )
+    chain = prompt | llm
+    return safe_llm_invoke(chain, {
+        "code": code,
+        "language": language
+    })
+
+def get_snippets(language: str, topic: str) -> str:
+    """
+    Get useful code snippets
+    
+    Args:
+        language: Programming language
+        topic: Topic for snippets
+        
+    Returns:
+        str: Code snippets
+    """
+    prompt = ChatPromptTemplate.from_template(
+        """You are a {language} expert creating a snippet library.
+Generate 10 useful, production-ready code snippets in {language} related to: {topic}
+
+For each snippet:
+- Title: Brief description
+- Code: Clean, commented code
+- Use Case: When to use it
+- Example: Quick usage example
+
+Format clearly with numbered sections."""
+    )
+    chain = prompt | llm
+    return safe_llm_invoke(chain, {
+        "language": language,
+        "topic": topic
+    })
+
+def get_projects(level: str, topic: str) -> str:
+    """
+    Generate project ideas
+    
+    Args:
+        level: Difficulty level
+        topic: Topic area
+        
+    Returns:
+        str: Project ideas
+    """
+    prompt = ChatPromptTemplate.from_template(
+        """You are a software engineering educator creating project ideas.
+Generate 10 innovative {level} level project ideas related to: {topic}
+
+For each project:
+- Title: Catchy project name
+- Description: What the project does
+- Key Features: 3-5 main features
+- Tech Stack: Recommended technologies
+- Learning Outcomes: Skills you'll gain
+- Estimated Time: How long it might take
+
+Make them practical, engaging, and portfolio-worthy."""
+    )
+    chain = prompt | llm
+    return safe_llm_invoke(chain, {
+        "level": level,
+        "topic": topic
+    })
+
+def get_roadmaps(level: str, topic: str) -> str:
+    """
+    Generate learning roadmaps
+    
+    Args:
+        level: Current skill level
+        topic: Topic to learn
+        
+    Returns:
+        str: Learning roadmap
+    """
+    prompt = ChatPromptTemplate.from_template(
+        """You are a career coach and technical educator.
+Create a comprehensive learning roadmap for {topic} tailored for {level} learners.
+
+Include:
+- Prerequisites: What to know before starting
+- Phase 1 - Foundations: Core concepts (with timeline)
+- Phase 2 - Intermediate: Building on basics (with timeline)
+- Phase 3 - Advanced: Expert-level topics (with timeline)
+- Recommended Resources: Books, courses, documentation
+- Practice Projects: Hands-on exercises for each phase
+- Milestones: How to measure progress
+
+Make it actionable and motivating."""
+    )
+    chain = prompt | llm
+    return safe_llm_invoke(chain, {
+        "level": level,
+        "topic": topic
+    })
+
+def check_llm_health() -> dict:
+    """
+    Check if LLMs are properly configured
+    
+    Returns:
+        dict: Health status information for both OpenAI and Groq
+    """
+    health_status = {
+        "openai": {"status": "unavailable", "message": "Not initialized"},
+        "groq": {"status": "unavailable", "message": "Not initialized"},
+        "primary": "none"
+    }
+    
+    # Check OpenAI
+    if llm is not None:
+        try:
+            test_prompt = ChatPromptTemplate.from_template("Say 'OK' if you can read this.")
+            chain = test_prompt | llm
+            response = safe_llm_invoke(chain, {}, use_groq=False)
+            
+            if "OK" in response or "ok" in response.lower():
+                health_status["openai"] = {
+                    "status": "healthy",
+                    "message": "OpenAI is operational",
+                    "model": settings.MODEL_NAME
+                }
+                health_status["primary"] = "openai"
+            else:
+                health_status["openai"] = {
+                    "status": "degraded",
+                    "message": "Unexpected response from OpenAI"
+                }
+        except Exception as e:
+            health_status["openai"] = {
+                "status": "error",
+                "message": str(e)
+            }
+    
+    # Check Groq
+    if groq_llm is not None:
+        try:
+            test_prompt = ChatPromptTemplate.from_template("Say 'OK' if you can read this.")
+            groq_chain = test_prompt | groq_llm
+            response = groq_chain.invoke({})
+            
+            response_text = response.content if hasattr(response, 'content') else str(response)
+            if "OK" in response_text or "ok" in response_text.lower():
+                health_status["groq"] = {
+                    "status": "healthy",
+                    "message": "Groq is operational",
+                    "model": settings.GROQ_MODEL
+                }
+                if health_status["primary"] == "none":
+                    health_status["primary"] = "groq"
+            else:
+                health_status["groq"] = {
+                    "status": "degraded",
+                    "message": "Unexpected response from Groq"
+                }
+        except Exception as e:
+            health_status["groq"] = {
+                "status": "error",
+                "message": str(e)
+            }
+    
+    return health_status
+
+# Streaming helper with fallback
+async def async_safe_llm_stream(chain, params: dict, use_groq: bool = False) -> AsyncIterator[str]:
+    """
+    Safely stream LLM responses with automatic fallback
+    
+    Args:
+        chain: LangChain chain object
+        params: Parameters for the prompt
+        use_groq: Force use of Groq (for testing)
+        
+    Yields:
+        str: Streamed chunks from LLM
+    """
+    # Try OpenAI first (unless forcing Groq)
+    if not use_groq and llm is not None:
+        try:
+            async for chunk in chain.astream(params):
+                if hasattr(chunk, 'content'):
+                    yield chunk.content
+                else:
+                    yield str(chunk)
+            return  # Success, don't try fallback
+        except Exception as e:
+            logger.warning(f"OpenAI streaming failed: {e}. Attempting Groq fallback...")
+            # Fall through to Groq fallback
+    
+    # Try Groq fallback
+    if groq_llm is not None:
+        try:
+            # Rebuild chain with Groq LLM
+            if hasattr(chain, 'steps') and len(chain.steps) >= 1:
+                prompt_template = chain.steps[0]
+            else:
+                prompt_template = chain.first if hasattr(chain, 'first') else chain
+            
+            groq_chain = prompt_template | groq_llm
+            logger.info("✅ Using Groq fallback for streaming")
+            
+            async for chunk in groq_chain.astream(params):
+                if hasattr(chunk, 'content'):
+                    yield chunk.content
+                else:
+                    yield str(chunk)
+            return
+        except Exception as groq_error:
+            logger.error(f"Groq streaming fallback also failed: {groq_error}")
+            yield f"❌ Error: Both OpenAI and Groq streaming failed."
+            return
+    
+    # No LLM available
+    if llm is None and groq_llm is None:
+        yield "❌ Error: No LLM configured for streaming."
+    elif llm is None:
+        yield "❌ Error: OpenAI not configured and Groq fallback unavailable."
+    else:
+        yield "❌ Error: OpenAI streaming failed and no Groq fallback available."
+
+# Streaming versions of functions
+async def stream_explain_code(language: str, topic: str, level: str, code: str = "") -> AsyncIterator[str]:
+    """Stream explanation of code or topic"""
+    if llm is None:
+        yield "❌ Error: OpenAI API not configured. Please check your API key."
+        return
+    
+    try:
+        if code and code.strip():
+            prompt = ChatPromptTemplate.from_template(
+                """You are an expert programming tutor with years of teaching experience.
+            
+Explain the following {language} code for a {level} level learner:
+
+```{language}
+{code}
+```
+
+Context/Topic: {topic}
+
+Provide:
+1. A clear, line-by-line explanation of what the code does
+2. Explanation of key concepts and patterns used
+3. Real-world use cases for this code
+4. Common pitfalls or improvements
+5. How each part contributes to the overall functionality
+
+Make it engaging, educational, and easy to understand."""
+            )
+        else:
+            prompt = ChatPromptTemplate.from_template(
+                """You are an expert programming tutor with years of teaching experience.
+            
+Explain the following topic in {language} for a {level} level learner:
+Topic: {topic}
+
+Provide:
+1. A clear, concise explanation
+2. Real-world use cases
+3. A simple code example with comments
+4. Common pitfalls to avoid
+
+Make it engaging and easy to understand."""
+            )
+        
+        chain = prompt | llm
+        async for chunk in chain.astream({
+            "code": code or "",
+            "topic": topic or "General code explanation",
+            "language": language,
+            "level": level
+        }):
+            if hasattr(chunk, 'content'):
+                yield chunk.content
+            else:
+                yield str(chunk)
+    except Exception as e:
+        logger.error(f"Streaming error: {e}")
+        yield f"❌ Error generating response: {str(e)}"
+
+async def stream_debug_code(language: str, code: str, topic: str = "") -> AsyncIterator[str]:
+    """Stream debugging analysis"""
+    if not code or code.strip() == "":
+        yield "⚠️ Please provide code to debug."
+        return
+    
+    if llm is None:
+        yield "❌ Error: OpenAI API not configured. Please check your API key."
+        return
+    
+    try:
+        prompt = ChatPromptTemplate.from_template(
+            """You are an expert code reviewer and debugger.
+Analyze the following {language} code and identify any bugs, errors, or issues:
+
+```{language}
+{code}
+```
+
+Context: {topic}
+
+Provide:
+- Issues Found: List all bugs, errors, and potential problems
+- Explanation: Explain why each issue occurs
+- Fixed Code: Provide the corrected version
+- Best Practices: Suggest improvements
+
+Be thorough and constructive."""
+        )
+        chain = prompt | llm
+        async for chunk in chain.astream({
+            "language": language,
+            "code": code,
+            "topic": topic or "General debugging"
+        }):
+            if hasattr(chunk, 'content'):
+                yield chunk.content
+            else:
+                yield str(chunk)
+    except Exception as e:
+        logger.error(f"Streaming error: {e}")
+        yield f"❌ Error generating response: {str(e)}"
+
+async def stream_generate_code(language: str, topic: str, level: str) -> AsyncIterator[str]:
+    """Stream code generation"""
+    if llm is None:
+        yield "❌ Error: OpenAI API not configured. Please check your API key."
+        return
+    
+    try:
+        prompt = ChatPromptTemplate.from_template(
+            """You are an expert {language} developer.
+Generate a {level} level code example for: {topic}
+
+Requirements:
+- Write clean, well-structured code
+- Add detailed comments explaining each part
+- Follow {language} best practices and conventions
+- Include error handling where appropriate
+- Make it production-ready
+- Only return the code with comments, no additional explanation outside the code."""
+        )
+        chain = prompt | llm
+        async for chunk in chain.astream({
+            "topic": topic,
+            "language": language,
+            "level": level
+        }):
+            if hasattr(chunk, 'content'):
+                yield chunk.content
+            else:
+                yield str(chunk)
+    except Exception as e:
+        logger.error(f"Streaming error: {e}")
+        yield f"❌ Error generating response: {str(e)}"
+
+async def stream_convert_logic(logic: str, language: str) -> AsyncIterator[str]:
+    """Stream logic to code conversion"""
+    if not logic or logic.strip() == "":
+        yield "⚠️ Please provide logic or pseudo-code to convert."
+        return
+    
+    if llm is None:
+        yield "❌ Error: OpenAI API not configured. Please check your API key."
+        return
+    
+    try:
+        prompt = ChatPromptTemplate.from_template(
+            """You are an expert programmer skilled in converting logic to code.
+Convert the following logic/pseudo-code to {language}:
+
+{logic}
+
+Provide:
+- Clean, executable {language} code
+- Inline comments explaining the logic
+- Proper error handling
+- Best practices implementation
+- Only return the code, no additional text."""
+        )
+        chain = prompt | llm
+        async for chunk in chain.astream({
+            "logic": logic,
+            "language": language
+        }):
+            if hasattr(chunk, 'content'):
+                yield chunk.content
+            else:
+                yield str(chunk)
+    except Exception as e:
+        logger.error(f"Streaming error: {e}")
+        yield f"❌ Error generating response: {str(e)}"
+
+async def stream_analyze_complexity(code: str) -> AsyncIterator[str]:
+    """Stream complexity analysis"""
+    if not code or code.strip() == "":
+        yield "⚠️ Please provide code to analyze."
+        return
+    
+    if llm is None:
+        yield "❌ Error: OpenAI API not configured. Please check your API key."
+        return
+    
+    try:
+        prompt = ChatPromptTemplate.from_template(
+            """You are a computer science expert specializing in algorithm analysis.
+Analyze the time and space complexity of the following code:
+
+{code}
+
+Provide:
+- Time Complexity: Big O notation with explanation
+- Space Complexity: Big O notation with explanation
+- Line-by-line Analysis: Break down the complexity of key operations
+- Optimization Suggestions: How to improve performance
+- Best/Average/Worst Case: If applicable
+
+Be detailed and educational."""
+        )
+        chain = prompt | llm
+        async for chunk in chain.astream({"code": code}):
+            if hasattr(chunk, 'content'):
+                yield chunk.content
+            else:
+                yield str(chunk)
+    except Exception as e:
+        logger.error(f"Streaming error: {e}")
+        yield f"❌ Error generating response: {str(e)}"
+
+async def stream_trace_code(code: str, language: str) -> AsyncIterator[str]:
+    """Stream code tracing"""
+    if not code or code.strip() == "":
+        yield "⚠️ Please provide code to trace."
+        return
+    
+    if llm is None:
+        yield "❌ Error: OpenAI API not configured. Please check your API key."
+        return
+    
+    try:
+        prompt = ChatPromptTemplate.from_template(
+            """You are a programming instructor teaching code execution flow.
+Trace the execution of this {language} code step-by-step:
+
+{code}
+
+Provide:
+- Initial State: Variables and their initial values
+- Step-by-Step Execution: Line-by-line trace with variable changes
+- Decision Points: Explain conditionals and loops
+- Final State: Output and final variable values
+- Visual Flow: Use arrows or markers to show flow
+
+Make it clear and educational."""
+        )
+        chain = prompt | llm
+        async for chunk in chain.astream({
+            "code": code,
+            "language": language
+        }):
+            if hasattr(chunk, 'content'):
+                yield chunk.content
+            else:
+                yield str(chunk)
+    except Exception as e:
+        logger.error(f"Streaming error: {e}")
+        yield f"❌ Error generating response: {str(e)}"
+
+async def stream_get_snippets(language: str, topic: str) -> AsyncIterator[str]:
+    """Stream code snippets"""
+    if llm is None:
+        yield "❌ Error: OpenAI API not configured. Please check your API key."
+        return
+    
+    try:
+        prompt = ChatPromptTemplate.from_template(
+            """You are a {language} expert creating a snippet library.
+Generate 10 useful, production-ready code snippets in {language} related to: {topic}
+
+For each snippet:
+- Title: Brief description
+- Code: Clean, commented code
+- Use Case: When to use it
+- Example: Quick usage example
+
+Format clearly with numbered sections."""
+        )
+        chain = prompt | llm
+        async for chunk in chain.astream({
+            "language": language,
+            "topic": topic
+        }):
+            if hasattr(chunk, 'content'):
+                yield chunk.content
+            else:
+                yield str(chunk)
+    except Exception as e:
+        logger.error(f"Streaming error: {e}")
+        yield f"❌ Error generating response: {str(e)}"
+
+async def stream_get_projects(level: str, topic: str) -> AsyncIterator[str]:
+    """Stream project ideas"""
+    if llm is None:
+        yield "❌ Error: OpenAI API not configured. Please check your API key."
+        return
+    
+    try:
+        prompt = ChatPromptTemplate.from_template(
+            """You are a software engineering educator creating project ideas.
+Generate 10 innovative {level} level project ideas related to: {topic}
+
+For each project:
+- Title: Catchy project name
+- Description: What the project does
+- Key Features: 3-5 main features
+- Tech Stack: Recommended technologies
+- Learning Outcomes: Skills you'll gain
+- Estimated Time: How long it might take
+
+Make them practical, engaging, and portfolio-worthy."""
+        )
+        chain = prompt | llm
+        async for chunk in chain.astream({
+            "level": level,
+            "topic": topic
+        }):
+            if hasattr(chunk, 'content'):
+                yield chunk.content
+            else:
+                yield str(chunk)
+    except Exception as e:
+        logger.error(f"Streaming error: {e}")
+        yield f"❌ Error generating response: {str(e)}"
+
+async def stream_get_roadmaps(level: str, topic: str) -> AsyncIterator[str]:
+    """Stream learning roadmaps"""
+    if llm is None:
+        yield "❌ Error: OpenAI API not configured. Please check your API key."
+        return
+    
+    try:
+        prompt = ChatPromptTemplate.from_template(
+            """You are a career coach and technical educator.
+Create a comprehensive learning roadmap for {topic} tailored for {level} learners.
+
+Include:
+- Prerequisites: What to know before starting
+- Phase 1 - Foundations: Core concepts (with timeline)
+- Phase 2 - Intermediate: Building on basics (with timeline)
+- Phase 3 - Advanced: Expert-level topics (with timeline)
+- Recommended Resources: Books, courses, documentation
+- Practice Projects: Hands-on exercises for each phase
+- Milestones: How to measure progress
+
+Make it actionable and motivating."""
+        )
+        chain = prompt | llm
+        async for chunk in chain.astream({
+            "level": level,
+            "topic": topic
+        }):
+            if hasattr(chunk, 'content'):
+                yield chunk.content
+            else:
+                yield str(chunk)
+    except Exception as e:
+        logger.error(f"Streaming error: {e}")
+        yield f"❌ Error generating response: {str(e)}"
+# ============================================
+# NEW AI DEVELOPER FEATURES
+# ============================================
+
+def review_code(code: str, language: str) -> str:
+    """
+    Comprehensive code review with security, quality, and performance analysis
+    
+    Args:
+        code: Code to review
+        language: Programming language
+        
+    Returns:
+        str: Detailed code review
+    """
+    if not code or code.strip() == "":
+        return "⚠️ Please provide code to review."
+    
+    prompt = ChatPromptTemplate.from_template(
+        """You are an expert code reviewer with extensive experience in software engineering best practices.
+
+Perform a comprehensive review of the following {language} code:
+
+```{language}
+{code}
+```
+
+Provide a structured review with these sections:
+
+## 📊 SUMMARY
+Brief overview of code quality (1-2 sentences)
+
+## 🔴 CRITICAL ISSUES
+- Security vulnerabilities
+- Breaking bugs
+- Data integrity risks
+
+## ⚠️ WARNINGS  
+- Performance concerns
+- Memory leaks
+- Scalability issues
+- Poor error handling
+
+## 💡 SUGGESTIONS
+- Code organization improvements
+- Better naming conventions
+- Design pattern recommendations
+- Refactoring opportunities
+
+## ✅ POSITIVE ASPECTS
+What's done well in this code
+
+## 🎯 BEST PRACTICES
+Specific {language} best practices to apply
+
+Format in clear markdown. Be constructive and educational."""
+    )
+    chain = prompt | llm
+    return safe_llm_invoke(chain, {
+        "code": code,
+        "language": language
+    })
+
+async def stream_review_code(code: str, language: str) -> AsyncIterator[str]:
+    """Stream code review analysis"""
+    if not code or code.strip() == "":
+        yield "⚠️ Please provide code to review."
+        return
+    
+    if llm is None:
+        yield "❌ Error: OpenAI API not configured. Please check your API key."
+        return
+    
+    try:
+        prompt = ChatPromptTemplate.from_template(
+            """You are an expert code reviewer with extensive experience in software engineering best practices.
+
+Perform a comprehensive review of the following {language} code:
+
+```{language}
+{code}
+```
+
+Provide a structured review with these sections:
+
+## 📊 SUMMARY
+Brief overview of code quality (1-2 sentences)
+
+## 🔴 CRITICAL ISSUES
+- Security vulnerabilities
+- Breaking bugs
+- Data integrity risks
+
+## ⚠️ WARNINGS  
+- Performance concerns
+- Memory leaks
+- Scalability issues
+- Poor error handling
+
+## 💡 SUGGESTIONS
+- Code organization improvements
+- Better naming conventions
+- Design pattern recommendations
+- Refactoring opportunities
+
+## ✅ POSITIVE ASPECTS
+What's done well in this code
+
+## 🎯 BEST PRACTICES
+Specific {language} best practices to apply
+
+Format in clear markdown. Be constructive and educational."""
+        )
+        chain = prompt | llm
+        async for chunk in chain.astream({
+            "code": code,
+            "language": language
+        }):
+            if hasattr(chunk, 'content'):
+                yield chunk.content
+            else:
+                yield str(chunk)
+    except Exception as e:
+        logger.error(f"Streaming error: {e}")
+        yield f"❌ Error generating response: {str(e)}"
+
+def generate_tests(code: str, language: str, framework: str = "") -> str:
+    """
+    Generate comprehensive unit tests for code
+    
+    Args:
+        code: Code to generate tests for
+        language: Programming language
+        framework: Test framework (pytest, jest, junit, etc.)
+        
+    Returns:
+        str: Generated test code
+    """
+    if not code or code.strip() == "":
+        return "⚠️ Please provide code to generate tests for."
+    
+    # Auto-select framework if not provided
+    if not framework:
+        framework_map = {
+            "python": "pytest",
+            "javascript": "jest",
+            "typescript": "jest",
+            "java": "junit",
+            "c++": "googletest",
+            "go": "testing",
+            "rust": "cargo test"
+        }
+        framework = framework_map.get(language.lower(), "standard testing framework")
+    
+    prompt = ChatPromptTemplate.from_template(
+        """You are a test automation expert specializing in {language}.
+
+Generate comprehensive unit tests for the following code using {framework}:
+
+```{language}
+{code}
+```
+
+Your test suite should include:
+1. **Imports and Setup**: All necessary imports and test fixtures
+2. **Happy Path Tests**: Test normal, expected behavior
+3. **Edge Cases**: Boundary conditions, empty inputs, null values
+4. **Error Handling**: Test exception cases and error conditions
+5. **Mock Objects**: If external dependencies exist
+6. **Clear Test Names**: Descriptive, self-documenting test names
+7. **Assertions**: Thorough, meaningful assertions
+
+Generate a complete, ready-to-run test file with:
+- Proper imports
+- Setup/teardown if needed
+- Well-organized test cases
+- Comments explaining complex tests
+
+Make it production-ready and follow {framework} best practices."""
+    )
+    chain = prompt | llm
+    return safe_llm_invoke(chain, {
+        "code": code,
+        "language": language,
+        "framework": framework
+    })
+
+async def stream_generate_tests(code: str, language: str, framework: str = "") -> AsyncIterator[str]:
+    """Stream test generation"""
+    if not code or code.strip() == "":
+        yield "⚠️ Please provide code to generate tests for."
+        return
+    
+    if llm is None:
+        yield "❌ Error: OpenAI API not configured. Please check your API key."
+        return
+    
+    # Auto-select framework if not provided
+    if not framework:
+        framework_map = {
+            "python": "pytest",
+            "javascript": "jest",
+            "typescript": "jest",
+            "java": "junit",
+            "c++": "googletest",
+            "go": "testing",
+            "rust": "cargo test"
+        }
+        framework = framework_map.get(language.lower(), "standard testing framework")
+    
+    try:
+        prompt = ChatPromptTemplate.from_template(
+            """You are a test automation expert specializing in {language}.
+
+Generate comprehensive unit tests for the following code using {framework}:
+
+```{language}
+{code}
+```
+
+Your test suite should include:
+1. **Imports and Setup**: All necessary imports and test fixtures
+2. **Happy Path Tests**: Test normal, expected behavior
+3. **Edge Cases**: Boundary conditions, empty inputs, null values
+4. **Error Handling**: Test exception cases and error conditions
+5. **Mock Objects**: If external dependencies exist
+6. **Clear Test Names**: Descriptive, self-documenting test names
+7. **Assertions**: Thorough, meaningful assertions
+
+Generate a complete, ready-to-run test file with:
+- Proper imports
+- Setup/teardown if needed
+- Well-organized test cases
+- Comments explaining complex tests
+
+Make it production-ready and follow {framework} best practices."""
+        )
+        chain = prompt | llm
+        async for chunk in chain.astream({
+            "code": code,
+            "language": language,
+            "framework": framework
+        }):
+            if hasattr(chunk, 'content'):
+                yield chunk.content
+            else:
+                yield str(chunk)
+    except Exception as e:
+        logger.error(f"Streaming error: {e}")
+        yield f"❌ Error generating response: {str(e)}"
+
+def refactor_code(code: str, language: str, refactor_type: str = "general") -> str:
+    """
+    Refactor code with intelligent improvements
+    
+    Args:
+        code: Code to refactor
+        language: Programming language
+        refactor_type: Type of refactoring (general, performance, readability, etc.)
+        
+    Returns:
+        str: Refactored code with explanation
+    """
+    if not code or code.strip() == "":
+        return "⚠️ Please provide code to refactor."
+    
+    refactor_focus = {
+        "general": "overall code quality, readability, and maintainability",
+        "performance": "performance optimization and efficiency",
+        "readability": "code clarity and understandability",
+        "solid": "SOLID principles and design patterns",
+        "dry": "eliminating code duplication (DRY principle)",
+        "extract_method": "extracting complex logic into separate functions",
+        "simplify": "simplifying complex conditionals and logic"
+    }
+    
+    focus = refactor_focus.get(refactor_type.lower(), refactor_focus["general"])
+    
+    prompt = ChatPromptTemplate.from_template(
+        """You are an expert software architect specializing in code refactoring.
+
+Refactor the following {language} code with focus on: {focus}
+
+```{language}
+{code}
+```
+
+Provide:
+
+## 🔧 REFACTORED CODE
+```{language}
+[Your improved code here]
+```
+
+## 📝 CHANGES MADE
+List of specific improvements:
+1. 
+2.
+3.
+
+## ✨ BENEFITS
+- Performance improvements
+- Better readability
+- Easier maintenance
+- Reduced complexity
+
+## ⚖️ TRADE-OFFS
+Any trade-offs or considerations
+
+## 💡 ADDITIONAL RECOMMENDATIONS
+Further improvements for the future
+
+Make the refactored code production-ready, clean, and well-commented."""
+    )
+    chain = prompt | llm
+    return safe_llm_invoke(chain, {
+        "code": code,
+        "language": language,
+        "focus": focus
+    })
+
+async def stream_refactor_code(code: str, language: str, refactor_type: str = "general") -> AsyncIterator[str]:
+    """Stream code refactoring"""
+    if not code or code.strip() == "":
+        yield "⚠️ Please provide code to refactor."
+        return
+    
+    if llm is None:
+        yield "❌ Error: OpenAI API not configured. Please check your API key."
+        return
+    
+    refactor_focus = {
+        "general": "overall code quality, readability, and maintainability",
+        "performance": "performance optimization and efficiency",
+        "readability": "code clarity and understandability",
+        "solid": "SOLID principles and design patterns",
+        "dry": "eliminating code duplication (DRY principle)",
+        "extract_method": "extracting complex logic into separate functions",
+        "simplify": "simplifying complex conditionals and logic"
+    }
+    
+    focus = refactor_focus.get(refactor_type.lower(), refactor_focus["general"])
+    
+    try:
+        prompt = ChatPromptTemplate.from_template(
+            """You are an expert software architect specializing in code refactoring.
+
+Refactor the following {language} code with focus on: {focus}
+
+```{language}
+{code}
+```
+
+Provide:
+
+## 🔧 REFACTORED CODE
+```{language}
+[Your improved code here]
+```
+
+## 📝 CHANGES MADE
+List of specific improvements:
+1. 
+2.
+3.
+
+## ✨ BENEFITS
+- Performance improvements
+- Better readability
+- Easier maintenance
+- Reduced complexity
+
+## ⚖️ TRADE-OFFS
+Any trade-offs or considerations
+
+## 💡 ADDITIONAL RECOMMENDATIONS
+Further improvements for the future
+
+Make the refactored code production-ready, clean, and well-commented."""
+        )
+        chain = prompt | llm
+        async for chunk in chain.astream({
+            "code": code,
+            "language": language,
+            "focus": focus
+        }):
+            if hasattr(chunk, 'content'):
+                yield chunk.content
+            else:
+                yield str(chunk)
+    except Exception as e:
+        logger.error(f"Streaming error: {e}")
+        yield f"❌ Error generating response: {str(e)}"
