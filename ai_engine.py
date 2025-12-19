@@ -567,9 +567,7 @@ async def async_safe_llm_stream(chain, params: dict, use_groq: bool = False) -> 
 # Streaming versions of functions
 async def stream_explain_code(language: str, topic: str, level: str, code: str = "") -> AsyncIterator[str]:
     """Stream explanation of code or topic"""
-    if llm is None:
-        yield "❌ Error: OpenAI API not configured. Please check your API key."
-        return
+
     
     try:
         if code and code.strip():
@@ -610,19 +608,16 @@ Make it engaging and easy to understand."""
             )
         
         chain = prompt | llm
-        async for chunk in chain.astream({
+        async for chunk in async_safe_llm_stream(chain, {
             "code": code or "",
             "topic": topic or "General code explanation",
             "language": language,
             "level": level
         }):
-            if hasattr(chunk, 'content'):
-                yield chunk.content
-            else:
-                yield str(chunk)
+            yield chunk
     except Exception as e:
-        logger.error(f"Streaming error: {e}")
-        yield f"❌ Error generating response: {str(e)}"
+        logger.error(f"Setup error: {e}")
+        yield f"❌ Error: {str(e)}"
 
 async def stream_debug_code(language: str, code: str, topic: str = "") -> AsyncIterator[str]:
     """Stream debugging analysis"""
@@ -630,9 +625,7 @@ async def stream_debug_code(language: str, code: str, topic: str = "") -> AsyncI
         yield "⚠️ Please provide code to debug."
         return
     
-    if llm is None:
-        yield "❌ Error: OpenAI API not configured. Please check your API key."
-        return
+
     
     try:
         prompt = ChatPromptTemplate.from_template(
@@ -654,24 +647,19 @@ Provide:
 Be thorough and constructive."""
         )
         chain = prompt | llm
-        async for chunk in chain.astream({
+        async for chunk in async_safe_llm_stream(chain, {
             "language": language,
             "code": code,
             "topic": topic or "General debugging"
         }):
-            if hasattr(chunk, 'content'):
-                yield chunk.content
-            else:
-                yield str(chunk)
+            yield chunk
     except Exception as e:
-        logger.error(f"Streaming error: {e}")
-        yield f"❌ Error generating response: {str(e)}"
+        logger.error(f"Setup error: {e}")
+        yield f"❌ Error: {str(e)}"
 
 async def stream_generate_code(language: str, topic: str, level: str) -> AsyncIterator[str]:
     """Stream code generation"""
-    if llm is None:
-        yield "❌ Error: OpenAI API not configured. Please check your API key."
-        return
+
     
     try:
         prompt = ChatPromptTemplate.from_template(
@@ -687,18 +675,15 @@ Requirements:
 - Only return the code with comments, no additional explanation outside the code."""
         )
         chain = prompt | llm
-        async for chunk in chain.astream({
+        async for chunk in async_safe_llm_stream(chain, {
             "topic": topic,
             "language": language,
             "level": level
         }):
-            if hasattr(chunk, 'content'):
-                yield chunk.content
-            else:
-                yield str(chunk)
+            yield chunk
     except Exception as e:
-        logger.error(f"Streaming error: {e}")
-        yield f"❌ Error generating response: {str(e)}"
+        logger.error(f"Setup error: {e}")
+        yield f"❌ Error: {str(e)}"
 
 async def stream_convert_logic(logic: str, language: str) -> AsyncIterator[str]:
     """Stream logic to code conversion"""
@@ -706,9 +691,7 @@ async def stream_convert_logic(logic: str, language: str) -> AsyncIterator[str]:
         yield "⚠️ Please provide logic or pseudo-code to convert."
         return
     
-    if llm is None:
-        yield "❌ Error: OpenAI API not configured. Please check your API key."
-        return
+
     
     try:
         prompt = ChatPromptTemplate.from_template(
@@ -725,17 +708,14 @@ Provide:
 - Only return the code, no additional text."""
         )
         chain = prompt | llm
-        async for chunk in chain.astream({
+        async for chunk in async_safe_llm_stream(chain, {
             "logic": logic,
             "language": language
         }):
-            if hasattr(chunk, 'content'):
-                yield chunk.content
-            else:
-                yield str(chunk)
+            yield chunk
     except Exception as e:
-        logger.error(f"Streaming error: {e}")
-        yield f"❌ Error generating response: {str(e)}"
+        logger.error(f"Setup error: {e}")
+        yield f"❌ Error: {str(e)}"
 
 async def stream_analyze_complexity(code: str) -> AsyncIterator[str]:
     """Stream complexity analysis"""
@@ -743,9 +723,7 @@ async def stream_analyze_complexity(code: str) -> AsyncIterator[str]:
         yield "⚠️ Please provide code to analyze."
         return
     
-    if llm is None:
-        yield "❌ Error: OpenAI API not configured. Please check your API key."
-        return
+
     
     try:
         prompt = ChatPromptTemplate.from_template(
@@ -764,14 +742,11 @@ Provide:
 Be detailed and educational."""
         )
         chain = prompt | llm
-        async for chunk in chain.astream({"code": code}):
-            if hasattr(chunk, 'content'):
-                yield chunk.content
-            else:
-                yield str(chunk)
+        async for chunk in async_safe_llm_stream(chain, {"code": code}):
+            yield chunk
     except Exception as e:
-        logger.error(f"Streaming error: {e}")
-        yield f"❌ Error generating response: {str(e)}"
+        logger.error(f"Setup error: {e}")
+        yield f"❌ Error: {str(e)}"
 
 async def stream_trace_code(code: str, language: str) -> AsyncIterator[str]:
     """Stream code tracing"""
@@ -779,9 +754,7 @@ async def stream_trace_code(code: str, language: str) -> AsyncIterator[str]:
         yield "⚠️ Please provide code to trace."
         return
     
-    if llm is None:
-        yield "❌ Error: OpenAI API not configured. Please check your API key."
-        return
+
     
     try:
         prompt = ChatPromptTemplate.from_template(
@@ -800,23 +773,18 @@ Provide:
 Make it clear and educational."""
         )
         chain = prompt | llm
-        async for chunk in chain.astream({
+        async for chunk in async_safe_llm_stream(chain, {
             "code": code,
             "language": language
         }):
-            if hasattr(chunk, 'content'):
-                yield chunk.content
-            else:
-                yield str(chunk)
+            yield chunk
     except Exception as e:
-        logger.error(f"Streaming error: {e}")
-        yield f"❌ Error generating response: {str(e)}"
+        logger.error(f"Setup error: {e}")
+        yield f"❌ Error: {str(e)}"
 
 async def stream_get_snippets(language: str, topic: str) -> AsyncIterator[str]:
     """Stream code snippets"""
-    if llm is None:
-        yield "❌ Error: OpenAI API not configured. Please check your API key."
-        return
+
     
     try:
         prompt = ChatPromptTemplate.from_template(
@@ -832,23 +800,18 @@ For each snippet:
 Format clearly with numbered sections."""
         )
         chain = prompt | llm
-        async for chunk in chain.astream({
+        async for chunk in async_safe_llm_stream(chain, {
             "language": language,
             "topic": topic
         }):
-            if hasattr(chunk, 'content'):
-                yield chunk.content
-            else:
-                yield str(chunk)
+            yield chunk
     except Exception as e:
-        logger.error(f"Streaming error: {e}")
-        yield f"❌ Error generating response: {str(e)}"
+        logger.error(f"Setup error: {e}")
+        yield f"❌ Error: {str(e)}"
 
 async def stream_get_projects(level: str, topic: str) -> AsyncIterator[str]:
     """Stream project ideas"""
-    if llm is None:
-        yield "❌ Error: OpenAI API not configured. Please check your API key."
-        return
+
     
     try:
         prompt = ChatPromptTemplate.from_template(
@@ -866,23 +829,18 @@ For each project:
 Make them practical, engaging, and portfolio-worthy."""
         )
         chain = prompt | llm
-        async for chunk in chain.astream({
+        async for chunk in async_safe_llm_stream(chain, {
             "level": level,
             "topic": topic
         }):
-            if hasattr(chunk, 'content'):
-                yield chunk.content
-            else:
-                yield str(chunk)
+            yield chunk
     except Exception as e:
-        logger.error(f"Streaming error: {e}")
-        yield f"❌ Error generating response: {str(e)}"
+        logger.error(f"Setup error: {e}")
+        yield f"❌ Error: {str(e)}"
 
 async def stream_get_roadmaps(level: str, topic: str) -> AsyncIterator[str]:
     """Stream learning roadmaps"""
-    if llm is None:
-        yield "❌ Error: OpenAI API not configured. Please check your API key."
-        return
+
     
     try:
         prompt = ChatPromptTemplate.from_template(
@@ -901,17 +859,14 @@ Include:
 Make it actionable and motivating."""
         )
         chain = prompt | llm
-        async for chunk in chain.astream({
+        async for chunk in async_safe_llm_stream(chain, {
             "level": level,
             "topic": topic
         }):
-            if hasattr(chunk, 'content'):
-                yield chunk.content
-            else:
-                yield str(chunk)
+            yield chunk
     except Exception as e:
-        logger.error(f"Streaming error: {e}")
-        yield f"❌ Error generating response: {str(e)}"
+        logger.error(f"Setup error: {e}")
+        yield f"❌ Error: {str(e)}"
 # ============================================
 # NEW AI DEVELOPER FEATURES
 # ============================================
@@ -981,9 +936,7 @@ async def stream_review_code(code: str, language: str) -> AsyncIterator[str]:
         yield "⚠️ Please provide code to review."
         return
     
-    if llm is None:
-        yield "❌ Error: OpenAI API not configured. Please check your API key."
-        return
+
     
     try:
         prompt = ChatPromptTemplate.from_template(
@@ -1026,17 +979,14 @@ Specific {language} best practices to apply
 Format in clear markdown. Be constructive and educational."""
         )
         chain = prompt | llm
-        async for chunk in chain.astream({
+        async for chunk in async_safe_llm_stream(chain, {
             "code": code,
             "language": language
         }):
-            if hasattr(chunk, 'content'):
-                yield chunk.content
-            else:
-                yield str(chunk)
+            yield chunk
     except Exception as e:
-        logger.error(f"Streaming error: {e}")
-        yield f"❌ Error generating response: {str(e)}"
+        logger.error(f"Setup error: {e}")
+        yield f"❌ Error: {str(e)}"
 
 def generate_tests(code: str, language: str, framework: str = "") -> str:
     """
@@ -1105,9 +1055,7 @@ async def stream_generate_tests(code: str, language: str, framework: str = "") -
         yield "⚠️ Please provide code to generate tests for."
         return
     
-    if llm is None:
-        yield "❌ Error: OpenAI API not configured. Please check your API key."
-        return
+
     
     # Auto-select framework if not provided
     if not framework:
@@ -1150,18 +1098,15 @@ Generate a complete, ready-to-run test file with:
 Make it production-ready and follow {framework} best practices."""
         )
         chain = prompt | llm
-        async for chunk in chain.astream({
+        async for chunk in async_safe_llm_stream(chain, {
             "code": code,
             "language": language,
             "framework": framework
         }):
-            if hasattr(chunk, 'content'):
-                yield chunk.content
-            else:
-                yield str(chunk)
+            yield chunk
     except Exception as e:
-        logger.error(f"Streaming error: {e}")
-        yield f"❌ Error generating response: {str(e)}"
+        logger.error(f"Setup error: {e}")
+        yield f"❌ Error: {str(e)}"
 
 def refactor_code(code: str, language: str, refactor_type: str = "general") -> str:
     """
@@ -1239,9 +1184,7 @@ async def stream_refactor_code(code: str, language: str, refactor_type: str = "g
         yield "⚠️ Please provide code to refactor."
         return
     
-    if llm is None:
-        yield "❌ Error: OpenAI API not configured. Please check your API key."
-        return
+
     
     refactor_focus = {
         "general": "overall code quality, readability, and maintainability",
@@ -1293,15 +1236,12 @@ Further improvements for the future
 Make the refactored code production-ready, clean, and well-commented."""
         )
         chain = prompt | llm
-        async for chunk in chain.astream({
+        async for chunk in async_safe_llm_stream(chain, {
             "code": code,
             "language": language,
             "focus": focus
         }):
-            if hasattr(chunk, 'content'):
-                yield chunk.content
-            else:
-                yield str(chunk)
+            yield chunk
     except Exception as e:
-        logger.error(f"Streaming error: {e}")
-        yield f"❌ Error generating response: {str(e)}"
+        logger.error(f"Setup error: {e}")
+        yield f"❌ Error: {str(e)}"

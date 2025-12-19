@@ -123,7 +123,7 @@ function AppContent() {
   }), []);
 
   const featureVideos = useMemo<Record<Feature, string | undefined>>(() => ({
-    explain: buildImageUrl('45569-443244046_small.mp4'),
+    explain: buildImageUrl('bc0e3057-c73b-46a1-a617-dceb564857f0_800w.jpg'),
     debug: undefined,
     generate: undefined,
     convert: undefined,

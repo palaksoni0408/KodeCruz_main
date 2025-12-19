@@ -1,80 +1,58 @@
-# Deployment Guide
+# KodesCruz Deployment Guide
 
-This guide explains how to deploy the **Backend to Render** and the **Frontend to Vercel**, and how to connect them.
-
-# Deployment Guide: KodesCruz
-
-This guide details how to deploy the KodesCruz application to **Render** (Backend) and **Vercel** (Frontend).
-
-## Prerequisites
-
-1.  **GitHub Account**: Ensure your project is pushed to a GitHub repository.
-2.  **Render Account**: Sign up at [render.com](https://render.com).
-3.  **Vercel Account**: Sign up at [vercel.com](https://vercel.com).
+This project is configured for a split deployment:
+1.  **Backend (FastAPI)** on **Render**
+2.  **Frontend (React/Vite)** on **Vercel**
 
 ---
 
-## Part 1: Backend Deployment (Render)
+## 1. Backend Deployment (Render)
 
-We will use Render to host the FastAPI backend.
+We have included a `render.yaml` file which defines the infrastructure as code.
 
-1.  **Create a New Web Service**:
-    *   Go to your Render Dashboard.
-    *   Click **New +** -> **Web Service**.
-    *   Connect your GitHub repository.
+### Option A: Blueprints (Recommended)
+1.  Push your code to GitHub.
+2.  Go to the [Render Dashboard](https://dashboard.render.com/).
+3.  Click **New +** -> **Blueprint**.
+4.  Connect your repository.
+5.  Render will automatically detect `render.yaml` and prompt you to create:
+    *   **dskodescruz-backend** (Web Service)
+    *   **dskodescruz-db** (PostgreSQL Database)
+6.  **Environment Variables**: You will need to click "Advanced" or manually add these in the dashboard if not prompted:
+    *   `OPENAI_API_KEY`: Your OpenAI key.
+    *   `GROQ_API_KEY`: Your Groq key.
+    *   `ALLOWED_ORIGINS`: `https://YOUR-VERCEL-DOMAIN.vercel.app,http://localhost:5173` (Add your Vercel URL here once you have it).
 
-2.  **Configure the Service** (Fill in the form exactly as below):
-    *   **Name**: `kodescruxx-backend`
-    *   **Region**: Oregon (US West) (or your preference)
-    *   **Branch**: `main`
-    *   **Root Directory**: (Leave blank)
-    *   **Runtime**: `Python 3`
-    *   **Build Command**: `pip install --upgrade pip && pip install -r requirements.txt`
-    *   **Start Command**: `gunicorn main:app --workers 4 --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:$PORT`
-        *   **IMPORTANT**: Do NOT use the default `gunicorn app:app`. You must copy the command above exactly.
-    *   **Instance Type**: Free
+### Option B: Manual Setup
+1.  Create a **Web Service** on Render.
+2.  **Build Command**: `pip install -r requirements.txt`
+3.  **Start Command**: `uvicorn main:app --host 0.0.0.0 --port $PORT`
+4.  Add the Environment Variables listed above.
+5.  Create a separate **PostgreSQL** database on Render and paste its `Internal Connection String` into the Web Service's `DATABASE_URL` environment variable.
 
-3.  **Environment Variables**:
-    *   Scroll down to **Environment Variables** and click **Add Environment Variable** for each of these:
+---
 
-    | Key | Value |
-    | :--- | :--- |
-    | `PYTHON_VERSION` | `3.9.0` |
-    | `SECRET_KEY` | (Enter a random string, e.g., `mysecretkey123`) |
-    | `OPENAI_API_KEY` | (Enter your OpenAI API Key) |
-    | `ALLOWED_ORIGINS` | `https://kodes-cruxx-ten.vercel.app` |
-    | `DATABASE_URL` | `sqlite:///./kodescruxx.db` |
+## 2. Frontend Deployment (Vercel)
 
-4.  **Deploy**:
-    *   Click **Create Web Service**.
-8.  **Copy the Backend URL**: Once deployed, copy the URL (e.g., `https://kodescruxx-qcaf.onrender.com`).
-
-## 2. Deploy Frontend to Vercel
-
-1.  Go to [Vercel Dashboard](https://vercel.com/dashboard).
-2.  Click **Add New...** > **Project**.
-3.  Import your GitHub repository.
-4.  **Configure the Project**:
-    *   **Framework Preset**: `Vite`
-    *   **Root Directory**: `frontend` (Important! Click "Edit" and select the `frontend` folder).
+1.  Push your code to GitHub.
+2.  Go to the [Vercel Dashboard](https://vercel.com/dashboard).
+3.  **Add New Project** -> Import your repository.
+4.  **Configure Project**:
+    *   **Framework Preset**: Vite
+    *   **Root Directory**: Click "Edit" and select `frontend`. **(Crucial)**
 5.  **Environment Variables**:
-    *   `VITE_API_URL`: Paste your Render Backend URL (e.g., `https://kodescruxx-qcaf.onrender.com`). **Do not add a trailing slash**.
+    *   `VITE_API_URL`: The URL of your deployed Render backend (e.g., `https://kodescruz-backend.onrender.com`). **Do not add a trailing slash.**
 6.  Click **Deploy**.
-7.  **Copy the Frontend URL**: Once deployed, copy the URL (e.g., `https://kodescruxx.vercel.app`).
 
-## 3. Connect & Finalize
+---
 
-1.  **Update Backend CORS**:
-    *   Go back to Render > Environment.
-    *   Update `ALLOWED_ORIGINS` to your Vercel Frontend URL (e.g., `https://kodes-cruxx-ten.vercel.app`).
-    *   Save changes (Render will redeploy).
+## 3. Post-Deployment Checks
+1.  **CORS**: Once Vercel deploys, copy the domain (e.g., `https://kodescruz.vercel.app`). Go back to Render -> Environment Variables and update `ALLOWED_ORIGINS` to include this domain.
+2.  **Health Check**: Visit `https://YOUR-RENDER-URL.onrender.com/health` to confirm the backend is up.
+3.  **Frontend Connection**: Open your Vercel app. If it connects to the backend, the "Backend Disconnected" warning in the header should disappear.
 
-2.  **Update OAuth Redirect URIs**:
-    *   **Google Cloud Console**: Add `https://kodescruxx-qcaf.onrender.com/auth/google/callback` to "Authorized redirect URIs".
-    *   **GitHub Developer Settings**: Update "Authorization callback URL" to `https://kodescruxx-qcaf.onrender.com/auth/github/callback`.
-
-## 4. Verify
-
-1.  Open your Vercel URL.
-2.  Try to Sign Up / Log In.
-3.  Check if the API requests are going to the Render URL (Network tab).
+## Notes
+- **Local Development**:
+    - Backend: `uvicorn main:app --reload`
+    - Frontend: `npm run dev` (in `frontend/` directory)
+- **Database**: The `render.yaml` automatically creates a database. Ensure your local `.env` has a valid `DATABASE_URL` if you want to run code locally that requires it.

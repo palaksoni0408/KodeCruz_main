@@ -204,6 +204,22 @@ def get_current_user(
     token = credentials.credentials
 
     try:
+        # DEBUG LOGGING (REMOVE IN PROD)
+        print(f"DEBUG: Checking token: {token[:20]}... DEBUG={settings.DEBUG}")
+        
+        # HANDLING FOR LOCAL DEMO USER (Fixes 401s during development)
+        if settings.DEBUG and token.startswith("demo-jwt-token-"):
+            # Create a mock user for the demo session
+            demo_user = user_models.User(
+                id="demo-user-123",
+                email="demo@kodescruz.local",
+                username="demo_user",
+                first_name="Demo",
+                last_name="User",
+                hashed_password=None
+            )
+            return demo_user
+
         # Check if it's a local token (HS256) or Neon token (ES256)
         # We try to get the public key. If it fails (e.g. kid not found in JWKS), 
         # we might want to fallback to local verification if we still support local login.

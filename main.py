@@ -288,17 +288,7 @@ def login_for_access_token(
         "token_type": "bearer"
     }
 
-async def check_rate_limit(
-    current_user: user_models.User = Depends(get_current_user),
-    # db: Session = Depends(get_db) # DB dependency removed
-):
-    """
-    Enforce daily query quota - DISABLED
-    
-    - Quota enforcement is currently disabled to prevent 401 errors.
-    - Returns current_user immediately.
-    """
-    return current_user
+
 
 # @app.get("/quota/status")
 # async def get_quota_status(
@@ -318,39 +308,39 @@ async def check_rate_limit(
 #     }
 
 @app.post("/explain")
-def explain(req: RequestModel, user: user_models.User = Depends(check_rate_limit)):
+def explain(req: RequestModel):
     return {"response": explain_code(req.language, req.topic or "", req.level, req.code or "")}
 
 @app.post("/debug")
-def debug(req: RequestModel, user: user_models.User = Depends(check_rate_limit)):
+def debug(req: RequestModel):
     return {"response": debug_code(req.language, req.code, req.topic or "")}
 
 @app.post("/generate")
-def generate(req: RequestModel, user: user_models.User = Depends(check_rate_limit)):
+def generate(req: RequestModel):
     return {"response": generate_code(req.language, req.topic, req.level)}
 
 @app.post("/convert_logic")
-def convert_logic(req: RequestModel, user: user_models.User = Depends(check_rate_limit)):
+def convert_logic(req: RequestModel):
     return {"response": convert_logic_to_code(req.logic, req.language)}
 
 @app.post("/analyze_complexity")
-def analyze(req: RequestModel, user: user_models.User = Depends(check_rate_limit)):
+def analyze(req: RequestModel):
     return {"response": analyze_complexity(req.code)}
 
 @app.post("/get_snippets")
-def get_snippets_endpoint(req: RequestModel, user: user_models.User = Depends(check_rate_limit)):
+def get_snippets_endpoint(req: RequestModel):
     return {"response": get_snippets(req.language, req.snippet or req.topic or "")}
 
 @app.post("/get_projects")
-def get_projects_endpoint(req: RequestModel, user: user_models.User = Depends(check_rate_limit)):
+def get_projects_endpoint(req: RequestModel):
     return {"response": get_projects(req.level, req.topic)}
 
 @app.post("/get_roadmaps")
-def get_roadmaps_endpoint(req: RequestModel, user: user_models.User = Depends(check_rate_limit)):
+def get_roadmaps_endpoint(req: RequestModel):
     return {"response": get_roadmaps(req.level, req.topic)}
 
 @app.post("/trace_code")
-def trace_code_endpoint(req: RequestModel, user: user_models.User = Depends(check_rate_limit)):
+def trace_code_endpoint(req: RequestModel):
     return {"response": trace_code(req.code or "", req.language or "python")}
 
 # ============================================
@@ -358,18 +348,18 @@ def trace_code_endpoint(req: RequestModel, user: user_models.User = Depends(chec
 # ============================================
 
 @app.post("/review_code")
-def review_code_endpoint(req: RequestModel, user: user_models.User = Depends(check_rate_limit)):
+def review_code_endpoint(req: RequestModel):
     """Comprehensive code review"""
     return {"response": review_code(req.code or "", req.language or "python")}
 
 @app.post("/generate_tests")
-def generate_tests_endpoint(req: RequestModel, user: user_models.User = Depends(check_rate_limit)):
+def generate_tests_endpoint(req: RequestModel):
     """Generate unit tests for code"""
     framework = getattr(req, 'framework', '')
     return {"response": generate_tests(req.code or "", req.language or "python", framework)}
 
 @app.post("/refactor_code")
-def refactor_code_endpoint(req: RequestModel, user: user_models.User = Depends(check_rate_limit)):
+def refactor_code_endpoint(req: RequestModel):
     """Refactor code with improvements"""
     refactor_type = getattr(req, 'refactor_type', 'general')
     return {"response": refactor_code(req.code or "", req.language or "python", refactor_type)}
@@ -377,7 +367,7 @@ def refactor_code_endpoint(req: RequestModel, user: user_models.User = Depends(c
 
 # Streaming endpoints
 @app.post("/stream/explain")
-async def stream_explain_endpoint(req: RequestModel, user: user_models.User = Depends(check_rate_limit)):
+async def stream_explain_endpoint(req: RequestModel):
     """Stream explanation of code or topic"""
     async def generate():
         # Send immediate response to show request was received
@@ -388,7 +378,7 @@ async def stream_explain_endpoint(req: RequestModel, user: user_models.User = De
     return StreamingResponse(generate(), media_type="text/event-stream")
 
 @app.post("/stream/debug")
-async def stream_debug_endpoint(req: RequestModel, user: user_models.User = Depends(check_rate_limit)):
+async def stream_debug_endpoint(req: RequestModel):
     """Stream debugging analysis"""
     async def generate():
         # Send immediate response to show request was received

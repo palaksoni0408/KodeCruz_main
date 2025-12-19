@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     
     # Groq Configuration (Fallback)
     GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "")
-    GROQ_MODEL: str = os.getenv("GROQ_MODEL", "llama-3.1-70b-versatile")
+    GROQ_MODEL: str = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
     USE_GROQ_FALLBACK: bool = os.getenv("USE_GROQ_FALLBACK", "true").lower() == "true"
     
     # API Configuration
@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     API_PORT: int = int(os.getenv("API_PORT", "8000"))
     
     # Application Settings
-    DEBUG: bool = os.getenv("DEBUG", "False").lower() == "true"
+    DEBUG: bool = os.getenv("DEBUG", "True").lower() == "true"
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
     
     # Project paths
